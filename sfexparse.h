@@ -916,6 +916,7 @@ static sfe_graph* sfe_do_clone(sfe_graph* graph, sfe_node* parent, sfe_bool incr
     sfe_node* node_clone;
     sfe_node* node;
     sfe_uint i;
+    size_t length;
 
     graph_clone = sfe_create_graph(parent, SFE_FALSE);
     if (!graph_clone) {
@@ -937,14 +938,16 @@ static sfe_graph* sfe_do_clone(sfe_graph* graph, sfe_node* parent, sfe_bool incr
         node_clone->assign = node->assign;
 
         if (node->symbol) {
-            node_clone->symbol = (char*)malloc((strlen(node->symbol) + 1) * sizeof(char));
+            length = (strlen(node->symbol) + 1) * sizeof(char);
+
+            node_clone->symbol = (char*)malloc(length);
             if (!node_clone->symbol) {
                 sfe_delete(graph_clone);
                 sfe_error_code = SFE_ALLOCATION_FAILED;
                 return SFE_FALSE;
             }
 
-            memcpy(node_clone->symbol, node->symbol, (strlen(node->symbol) + 1) * sizeof(char));
+            memcpy(node_clone->symbol, node->symbol, length);
         }
 
         if (node->unary) {
@@ -1691,7 +1694,7 @@ static sfe_num sfe_to_number(char* string)
     sfe_num number;
     char* end;
     sfe_int base;
-    sfe_uint i;
+    size_t i;
 #ifdef SFEXPARSE_USE_FLOAT
     sfe_bool integer = SFE_TRUE;
 #endif
@@ -1798,16 +1801,16 @@ static sfe_num sfe_to_number(char* string)
 static char* sfe_sprintf(const char* format, sfe_num number)
 {
     static char buffer[32];
-    sfe_uint length;
+    size_t length;
     char* string;
 
-    length = sprintf(buffer, format, number);
-    string = (char*)malloc(((size_t)length + 1) * sizeof(char));
+    length = (sprintf(buffer, format, number) + 1) * sizeof(char);
+    string = (char*)malloc(length);
     if (!string) {
         sfe_error_code = SFE_ALLOCATION_FAILED;
         return SFE_NULL;
     }
-    memcpy(string, buffer, ((size_t)length + 1) * sizeof(char));
+    memcpy(string, buffer, length);
 
     sfe_error_code = SFE_OK;
     return string;
@@ -1817,7 +1820,7 @@ static char* sfe_from_number(sfe_num number)
 {
     char* string;
 #ifdef SFEXPARSE_USE_FLOAT
-    sfe_uint i;
+    size_t i;
 #endif
 
 #ifdef SFEXPARSE_USE_FLOAT
@@ -1848,12 +1851,12 @@ static char* sfe_from_number(sfe_num number)
 
 static sfe_bool sfe_parse_symbol(sfe_work* work, sfe_node* node)
 {
-    sfe_uint length;
+    size_t length;
     sfe_num number;
 
     if (work->symbol_start) {
         length = work->symbol_end - work->symbol_start;
-        node->symbol = (char*)malloc(((size_t)length + 1) * sizeof(char));
+        node->symbol = (char*)malloc((length + 1) * sizeof(char));
         if (!node->symbol) {
             sfe_error_code = SFE_ALLOCATION_FAILED;
             return SFE_FALSE;
@@ -2405,8 +2408,8 @@ sfe_graph* sfe_parse(const char* expression)
 static char* sfe_append(char* base, const char* append)
 {
     char* string;
-    sfe_uint length_1;
-    sfe_uint length_2;
+    size_t length_1;
+    size_t length_2;
 
     length_2 = strlen(append) + 1;
     if (!base) {
@@ -2414,7 +2417,7 @@ static char* sfe_append(char* base, const char* append)
         string = (char*)malloc(length_2 * sizeof(char));
     } else {
         length_1 = strlen(base);
-        string = (char*)realloc(base, ((size_t)length_1 + length_2) * sizeof(char));
+        string = (char*)realloc(base, (length_1 + length_2) * sizeof(char));
     }
     if (!string) {
         if (!base) {
