@@ -1797,7 +1797,7 @@ static sfe_num sfe_to_number(char* string)
 
 static char* sfe_sprintf(const char* format, sfe_num number)
 {
-    char buffer[32];
+    static char buffer[32];
     sfe_uint length;
     char* string;
 
