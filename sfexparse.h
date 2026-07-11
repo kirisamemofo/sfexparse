@@ -214,7 +214,7 @@
  *         function(x)
  *         function(x, y, z)
  * 
- *     Nodes with function arguments are set tot ype SFE_FUNCTION.
+ *     Nodes with function arguments are set to type SFE_FUNCTION.
  * 
  * Arrays:
  * 
@@ -224,7 +224,7 @@
  *         array[x]
  *         array[x][y][z]
  * 
- *     Nodes with array subscripts are set tot ype SFE_ARRAY.
+ *     Nodes with array subscripts are set to type SFE_ARRAY.
  * 
  * Unary operators:
  * 
