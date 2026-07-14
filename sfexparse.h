@@ -36,17 +36,19 @@
  *     }
  * 
  * In order to utilize variables and functions during resolution, value getter and
- * setter functions need to be defined and then passed into sfe_init(), like so:
+ * setter functions need to be defined, alongside a symbol character validator function,
+ * and then passed into sfe_init(), like so:
  * 
- *     sfe_init(getter, setter);
+ *     sfe_init(getter, setter, validator);
  * 
- * Said getter and setter functions have the following signatures:
+ * Said functions have the following signatures:
  * 
  *     sfe_error getter(const sfe_node* const node, sfe_num* const value)
- *     sfe_error setter(const sfe_node* const node, const sfe_num value)
+ *     sfe_error setter(const sfe_node* const node, sfe_num value)
+ *     sfe_bool validator(char character);
  * 
- * When either of them are called, it will be given a pointer to a graph node,
- * which includes things such as the symbol name, list of arguments for function,
+ * When either the getter or setter are called, it will be given a pointer to a graph
+ * node which includes things such as the symbol name, list of arguments for function,
  * calls, and list of subscript values for arrays.
  
  * To get the type of node, call sfe_get_type():
@@ -109,6 +111,15 @@
  *     }
  *     return SFE_OK;
  * 
+ * The symbol character validator function will be given a character to check.
+ * If it's valid, SFE_TRUE should be returned. If not, SFE_FALSE should be
+ * returned instead:
+ *
+ *    if (!valid) {
+ *        return SFE_FALSE;
+ *    }
+ *    return SFE_TRUE;
+ *
  * To parse an expression, it's as simple as calling sfe_parse() with the
  * expression string passed to it. If there's a syntax error, a null pointer
  * will be returned, and an error code will be set, If the expression is empty,
@@ -359,6 +370,7 @@
  *     SFE_UNEXPECTED_COMMA     (Unexpected comma)
  *     SFE_NOT_NUMBER           (Not a number)
  *     SFE_BAD_NUMBER           (Invalid number)
+ *     SFE_BAD_SYMBOL           (Invalid symbol)
  *     SFE_DIVIDE_BY_ZERO       (Division by 0)
  *     SFE_CANT_GET_VALUE       (Can't get value)
  *     SFE_CANT_SET_VALUE       (Can't set value)
@@ -369,7 +381,8 @@
 
 /*
  * CHANGELOG:
- *     v1.0 (2026/07/10) - Initial version
+ *     v1.0   (2026/07/10) - Initial version
+ *     v1.0.1 (2026/07/14) - Add symbol character validator support
  */
 
 #ifndef SFEXPARSE_H
@@ -413,6 +426,7 @@ typedef enum {
     SFE_UNEXPECTED_COMMA,
     SFE_NOT_NUMBER,
     SFE_BAD_NUMBER,
+    SFE_BAD_SYMBOL,
     SFE_DIVIDE_BY_ZERO,
     SFE_CANT_GET_VALUE,
     SFE_CANT_SET_VALUE,
@@ -498,18 +512,20 @@ typedef struct sfe_node_ {
 } sfe_node;
 
 typedef sfe_error (*sfe_getter)(const sfe_node* const node, sfe_num* const value);
-typedef sfe_error (*sfe_setter)(const sfe_node* const node, const sfe_num value);
+typedef sfe_error (*sfe_setter)(const sfe_node* const node, sfe_num value);
+typedef sfe_bool (*sfe_validator)(char character);
 
 /*
  * Initialize
  *
  * ARGUMENTS:
- *     getter - Value getter function
- *     setter - Value setter function
+ *     getter    - Value getter function
+ *     setter    - Value setter function
+ *     validator - Character validator function
  * RETURNS:
  *     Error code
  */
-void sfe_init(sfe_getter getter, sfe_setter setter);
+void sfe_init(sfe_getter getter, sfe_setter setter, sfe_validator validator);
 
 /*
  * Get error code
@@ -653,6 +669,7 @@ typedef struct {
 static sfe_error sfe_error_code = SFE_OK;
 static sfe_getter sfe_do_get_value = SFE_NULL;
 static sfe_setter sfe_do_set_value = SFE_NULL;
+static sfe_validator sfe_do_validate = SFE_NULL;
 
 static sfe_group_id sfe_group_ids[SFE_BINARY_COUNT] = {
     SFE_GROUP_ADD,              /* SFE_ADD */
@@ -710,6 +727,7 @@ const char* sfe_error_string(void)
         "Unexpected comma",             /* SFE_UNEXPECTED_COMMA */
         "Not a number",                 /* SFE_NOT_NUMBER */
         "Invalid number",               /* SFE_BAD_NUMBER */
+        "Invalid symbol",               /* SFE_BAD_SYMBOL */
         "Division by 0",                /* SFE_DIVIDE_BY_ZERO */
         "Can't get value",              /* SFE_CANT_GET_VALUE */
         "Can't set value",              /* SFE_CANT_SET_VALUE */
@@ -1853,6 +1871,7 @@ static sfe_bool sfe_parse_symbol(sfe_work* work, sfe_node* node)
 {
     size_t length;
     sfe_num number;
+    size_t i;
 
     if (work->symbol_start) {
         length = work->symbol_end - work->symbol_start;
@@ -1881,6 +1900,14 @@ static sfe_bool sfe_parse_symbol(sfe_work* work, sfe_node* node)
                 break;
 
             case SFE_NOT_NUMBER:
+                if (sfe_do_validate) {
+                    for (i = 0; i < length; i++) {
+                        if (!sfe_do_validate(node->symbol[i])) {
+                            sfe_error_code = SFE_BAD_SYMBOL;
+                            return SFE_FALSE;
+                        }
+                    }
+                }
                 node->type = SFE_SYMBOL;
                 break;
 
@@ -1902,7 +1929,7 @@ static sfe_bool sfe_do_parse(sfe_work* work, sfe_node* node)
 {
     sfe_graph* sub;
 
-    while (*(work->expression) != '\0') {
+    while (*work->expression != '\0') {
         switch (*(work->expression++)) {
             case ' ':
             case '\t':
@@ -2026,14 +2053,14 @@ static sfe_bool sfe_do_parse(sfe_work* work, sfe_node* node)
                 }
 
                 if (node->type == SFE_TYPE_UNKNOWN) {
-                    if (*(work->expression) == '+') {
+                    if (*work->expression == '+') {
                         work->expression++;
                         sfe_add_pre(node, SFE_INCREMENT);
                     } else {
                         sfe_add_unary(node, SFE_POSITIVE);
                     }
                 } else {
-                    switch (*(work->expression)) {
+                    switch (*work->expression) {
                         case '+':
                             work->expression++;
                             sfe_add_post(node, SFE_INCREMENT);
@@ -2061,14 +2088,14 @@ static sfe_bool sfe_do_parse(sfe_work* work, sfe_node* node)
                 }
 
                 if (node->type == SFE_TYPE_UNKNOWN) {
-                    if (*(work->expression) == '-') {
+                    if (*work->expression == '-') {
                         work->expression++;
                         sfe_add_pre(node, SFE_DECREMENT);
                     } else {
                         sfe_add_unary(node, SFE_NEGATIVE);
                     }
                 } else {
-                    switch (*(work->expression)) {
+                    switch (*work->expression) {
                         case '-':
                             work->expression++;
                             sfe_add_post(node, SFE_DECREMENT);
@@ -2095,7 +2122,7 @@ static sfe_bool sfe_do_parse(sfe_work* work, sfe_node* node)
                     return SFE_FALSE;
                 }
 
-                switch (*(work->expression)) {
+                switch (*work->expression) {
                     case '*':
                         if (*(++(work->expression)) == '=') {
                             work->expression++;
@@ -2125,7 +2152,7 @@ static sfe_bool sfe_do_parse(sfe_work* work, sfe_node* node)
                     return SFE_FALSE;
                 }
 
-                if (*(work->expression) == '=') {
+                if (*work->expression == '=') {
                     work->expression++;
                     node = sfe_set_binary(node, SFE_DIVIDE, SFE_TRUE);
                 } else {
@@ -2142,7 +2169,7 @@ static sfe_bool sfe_do_parse(sfe_work* work, sfe_node* node)
                     return SFE_FALSE;
                 }
 
-                if (*(work->expression) == '=') {
+                if (*work->expression == '=') {
                     work->expression++;
                     node = sfe_set_binary(node, SFE_MODULO, SFE_TRUE);
                 } else {
@@ -2159,7 +2186,7 @@ static sfe_bool sfe_do_parse(sfe_work* work, sfe_node* node)
                     return SFE_FALSE;
                 }
 
-                if (*(work->expression) == '=') {
+                if (*work->expression == '=') {
                     work->expression++;
                     node = sfe_set_binary(node, SFE_EQUAL, SFE_FALSE);
                 } else {
@@ -2178,7 +2205,7 @@ static sfe_bool sfe_do_parse(sfe_work* work, sfe_node* node)
 
                 if (node->type == SFE_TYPE_UNKNOWN) {
                     sfe_add_unary(node, SFE_LOGICAL_NOT);
-                } else if (*(work->expression) == '=') {
+                } else if (*work->expression == '=') {
                     work->expression++;
                     node = sfe_set_binary(node, SFE_NOT_EQUAL, SFE_FALSE);
                 } else {
@@ -2195,7 +2222,7 @@ static sfe_bool sfe_do_parse(sfe_work* work, sfe_node* node)
                     return SFE_FALSE;
                 }
 
-                switch (*(work->expression)) {
+                switch (*work->expression) {
                     case '<':
                         if (*(++(work->expression)) == '=') {
                             work->expression++;
@@ -2225,7 +2252,7 @@ static sfe_bool sfe_do_parse(sfe_work* work, sfe_node* node)
                     return SFE_FALSE;
                 }
 
-                switch (*(work->expression)) {
+                switch (*work->expression) {
                     case '>':
                         if (*(++(work->expression)) == '=') {
                             work->expression++;
@@ -2271,7 +2298,7 @@ static sfe_bool sfe_do_parse(sfe_work* work, sfe_node* node)
                     return SFE_FALSE;
                 }
 
-                switch (*(work->expression)) {
+                switch (*work->expression) {
                     case '&':
                         work->expression++;
                         node = sfe_set_binary(node, SFE_LOGICAL_AND, SFE_FALSE);
@@ -2297,7 +2324,7 @@ static sfe_bool sfe_do_parse(sfe_work* work, sfe_node* node)
                     return SFE_FALSE;
                 }
 
-                switch (*(work->expression)) {
+                switch (*work->expression) {
                     case '|':
                         work->expression++;
                         node = sfe_set_binary(node, SFE_LOGICAL_OR, SFE_FALSE);
@@ -2323,7 +2350,7 @@ static sfe_bool sfe_do_parse(sfe_work* work, sfe_node* node)
                     return SFE_FALSE;
                 }
 
-                if (*(work->expression) == '=') {
+                if (*work->expression == '=') {
                     work->expression++;
                     node = sfe_set_binary(node, SFE_BITWISE_XOR, SFE_TRUE);
                 } else {
