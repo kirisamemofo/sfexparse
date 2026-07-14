@@ -1871,7 +1871,6 @@ static sfe_bool sfe_parse_symbol(sfe_work* work, sfe_node* node)
 {
     size_t length;
     sfe_num number;
-    size_t i;
 
     if (work->symbol_start) {
         length = work->symbol_end - work->symbol_start;
@@ -1901,7 +1900,7 @@ static sfe_bool sfe_parse_symbol(sfe_work* work, sfe_node* node)
 
             case SFE_NOT_NUMBER:
                 if (sfe_do_validate) {
-                    if (!sfe_do_validate(node->symbol[i])) {
+                    if (!sfe_do_validate(node->symbol)) {
                         sfe_error_code = SFE_BAD_SYMBOL;
                         return SFE_FALSE;
                     }
