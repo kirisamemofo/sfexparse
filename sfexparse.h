@@ -693,10 +693,11 @@ static sfe_group_id sfe_group_ids[SFE_BINARY_COUNT] = {
     SFE_GROUP_SHIFT             /* SFE_SHIFT_RIGHT */
 };
 
-void sfe_init(sfe_getter getter, sfe_setter setter)
+void sfe_init(sfe_getter getter, sfe_setter setter, sfe_validator validator)
 {
     sfe_do_get_value = getter;
     sfe_do_set_value = setter;
+    sfe_do_validate = validator;
 }
 
 sfe_error sfe_get_error(void)
