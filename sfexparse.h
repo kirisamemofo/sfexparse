@@ -36,8 +36,8 @@
  *     }
  * 
  * In order to utilize variables and functions during resolution, value getter and
- * setter functions need to be defined, alongside a symbol character validator function,
- * and then passed into sfe_init(), like so:
+ * setter functions need to be defined, alongside a symbol validator function, and
+ * then passed into sfe_init(), like so:
  * 
  *     sfe_init(getter, setter, validator);
  * 
@@ -45,7 +45,7 @@
  * 
  *     sfe_error getter(const sfe_node* const node, sfe_num* const value)
  *     sfe_error setter(const sfe_node* const node, sfe_num value)
- *     sfe_bool validator(char character);
+ *     sfe_bool validator(const char* symbol);
  * 
  * When either the getter or setter are called, it will be given a pointer to a graph
  * node which includes things such as the symbol name, list of arguments for function,
@@ -111,9 +111,8 @@
  *     }
  *     return SFE_OK;
  * 
- * The symbol character validator function will be given a character to check.
- * If it's valid, SFE_TRUE should be returned. If not, SFE_FALSE should be
- * returned instead:
+ * The symbol validator function will be given a symbol to check. If it's valid,
+ * SFE_TRUE should be returned. If not, SFE_FALSE should be returned instead:
  *
  *    if (!valid) {
  *        return SFE_FALSE;
@@ -382,7 +381,7 @@
 /*
  * CHANGELOG:
  *     v1.0   (2026/07/10) - Initial version
- *     v1.0.1 (2026/07/14) - Add symbol character validator support
+ *     v1.0.1 (2026/07/14) - Add symbol validator support
  */
 
 #ifndef SFEXPARSE_H
@@ -521,7 +520,7 @@ typedef sfe_bool (*sfe_validator)(char character);
  * ARGUMENTS:
  *     getter    - Value getter function
  *     setter    - Value setter function
- *     validator - Character validator function
+ *     validator - Symbol validator function
  * RETURNS:
  *     Error code
  */
@@ -1902,11 +1901,9 @@ static sfe_bool sfe_parse_symbol(sfe_work* work, sfe_node* node)
 
             case SFE_NOT_NUMBER:
                 if (sfe_do_validate) {
-                    for (i = 0; i < length; i++) {
-                        if (!sfe_do_validate(node->symbol[i])) {
-                            sfe_error_code = SFE_BAD_SYMBOL;
-                            return SFE_FALSE;
-                        }
+                    if (!sfe_do_validate(node->symbol[i])) {
+                        sfe_error_code = SFE_BAD_SYMBOL;
+                        return SFE_FALSE;
                     }
                 }
                 node->type = SFE_SYMBOL;
