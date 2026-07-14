@@ -512,7 +512,7 @@ typedef struct sfe_node_ {
 
 typedef sfe_error (*sfe_getter)(const sfe_node* const node, sfe_num* const value);
 typedef sfe_error (*sfe_setter)(const sfe_node* const node, sfe_num value);
-typedef sfe_bool (*sfe_validator)(char character);
+typedef sfe_bool (*sfe_validator)(const char* symbol);
 
 /*
  * Initialize
