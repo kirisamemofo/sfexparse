@@ -2100,9 +2100,9 @@ sfe_bool sfe_resolve(sfe_graph* graph, sfe_value* result)
     }
 
 #ifndef SFEXPARSE_ENABLE_STRINGS
-    if (resolve->head->type == SFE_NUMBER) {
+    if (result && resolve->head->type == SFE_NUMBER) {
 #else
-    if (resolve->head->type == SFE_NUMBER || resolve->head->type == SFE_STRING) {
+    if (result && (resolve->head->type == SFE_NUMBER || resolve->head->type == SFE_STRING)) {
 #endif
         result->type = resolve->head->type;
         result->number = resolve->head->number;
