@@ -1765,8 +1765,8 @@ static sfe_bool sfe_add_group(sfe_node* node, sfe_group* groups, sfe_group_id id
 
 static sfe_bool sfe_do_group_node(sfe_node* node, sfe_value* value)
 {
-    char* string;
 #ifdef SFEXPARSE_ENABLE_STRINGS
+    char* string;
 #ifdef SFEXPARSE_ENABLE_NUMBER_STRING_COMBINE
     char* append;
 #endif
