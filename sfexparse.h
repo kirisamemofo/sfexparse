@@ -612,7 +612,7 @@ const char* sfe_error_string(void);
  *     value  - Value to store number in
  *     number - Number to store
  */
-void sfe_set_number(sfe_value* const node, sfe_num number);
+void sfe_set_number(sfe_value* const value, sfe_num number);
 
 #ifdef SFEXPARSE_ENABLE_STRINGS
 /*
@@ -624,7 +624,7 @@ void sfe_set_number(sfe_value* const node, sfe_num number);
  * RETURNS:
  *     True if successful, false if failed
  */
-sfe_bool sfe_set_string(sfe_value* const node, char* string);
+sfe_bool sfe_set_string(sfe_value* const value, char* string);
 #endif
 
 /*
