@@ -43,46 +43,47 @@
  * 
  * Said functions have the following signatures:
  * 
- *     sfe_error getter(const sfe_node* const node, sfe_num* const value)
- *     sfe_error setter(const sfe_node* const node, sfe_num value)
+ *     sfe_error getter(const sfe_node* const node, sfe_value* const value)
+ *     sfe_error setter(const sfe_node* const node, const sfe_value* const value)
  *     sfe_bool validator(const char* symbol);
  * 
  * When either the getter or setter are called, it will be given a pointer to a graph
  * node which includes things such as the symbol name, list of arguments for function,
- * calls, and list of subscript values for arrays.
- 
- * To get the type of node, call sfe_get_type():
+ * calls, and list of subscript values for arraysL
  * 
- *     sfe_type type = sfe_get_type(node);
+ *     node->type          - Type
+ *     node->number        - Number        (if type is SFE_NUMBER)
+ *     node->string        - String/Symbol (if type is SFE_STRING, SFE_SYMBOL,
+                                            SFE_FUNCTION, or SFE_ARRAY)
+ *     node->subs          - Function arguments/array subscripts
+ *     node->sub_count     - Function argument/array subscript count
+ *     node->subs->head[i] - Function argument/array subscript node
  * 
- * To get the symbol, call sfe_get_symbol():
- *
- *     const char* symbol = sfe_get_symbol(node);
+ * The getter function will be given a pointer in which the retrieved value info
+ * should be stored into. Use sfe_set_number() if the value is a number, or use
+ * sfe_set_string() if the value is a string (which returns SFE_TRUE or SFE_FALSE
+ * depending on if it succeeded at setting the string or not):
  * 
- * To get the number of function arguments or array subscripts, call
- * sfe_get_sub_count():
+ *     if (number) {
+ *         sfe_set_number(value, number);
+ *     } else {
+ *         if (!sfe_set_string(value, string)) {
+ *             [Failed to set string value]
+ *         }
+ *     }
  * 
- *     sfe_uint count = sfe_get_sub_count(node);
- *
- * To get a function argument or array subscript, call sfe_get_sub():
- * 
- *     sfe_num sub = sfe_get_sub(node, index);
- * 
- * The getter function will be given a pointer in which the retrieved value should
- * be stored into. If successful, SFE_OK should be returned. If not,
- * SFE_CANT_GET_VALUE should be returned instead:
+ * If successful, SFE_OK should be returned. If not, SFE_CANT_GET_VALUE should be
+ * returned instead:
  *
  *     if (failed) {
  *         return SFE_CANT_GET_VALUE;
  *     }
- *     *value = [retrieved value];
  *     return SFE_OK;
  * 
  * If there's a problem with the number of function arguments or subscripts
  * passed, then either SFE_NOT_ENOUGH_ARGUMENTS or SFE_TOO_MANY_ARGUMENTS should
  * be returned:
  * 
- *     sfe_uint count = sfe_get_sub_count(node);
  *     if (count < [expected count]) {
  *         return SFE_NOT_ENOUGH_ARGUMENTS;
  *     } else if (count > [expected count]) {
@@ -92,18 +93,21 @@
  * If there's a problem retrieving a function argument or array subscript, then
  * SFE_BAD_ARGUMENT or SFE_BAD_SUBSCRIPT should be returned:
  * 
- *     sfe_type type = sfe_get_type(node);
- *     sfe_num sub = sfe_get_sub(node, index);
- *     if ([problem with "sub"]) {
- *         if (type == SFE_FUNCTION) {
- *             return SFE_BAD_ARGUMENT;
- *         } else {
- *             return SFE_BAD_SUBSCRIPT;
- *         }
+ *     if (type == SFE_FUNCTION) {
+ *         return SFE_BAD_ARGUMENT;
+ *     } else {
+ *         return SFE_BAD_SUBSCRIPT;
  *     }
  * 
- * The setter function will be given the value in which to set with. If
- * successful, SFE_OK should be returned. If not, SFE_CANT_SET_VALUE should be
+ * The setter function will be given the value info in which to set with:
+ * 
+ *     if (value->type == SFE_NUMBER) {
+ *         number = value->number;
+ *     } else if (value->type == SFE_STRING) {
+ *         string = value->string;
+ *     }
+ * 
+ * If successful, SFE_OK should be returned. If not, SFE_CANT_SET_VALUE should be
  * returned instead:
  * 
  *     if (failed) {
@@ -133,8 +137,8 @@
  *         ["graph" is null here, with an error code set]
  *     }
  * 
- * To get a string representation of the graph, just call sfe_to_string().
- * If it fails to do that, then a null pointer will be returned with an error
+ * To get a string representation of the graph, just call sfe_to_string(). If
+ * it fails to do that, then a null pointer will be returned with an error
  * code set. When finished using the string, don't forget to call free() on it
  * to prevent a memory leak:
  * 
@@ -146,21 +150,27 @@
  *         ["string" is null here, with an error code set]
  *     }
  * 
- * Afterwards, the graph can be resolved into a single number node by passing
- * the graph into sfe_resolve(), in which the chosen value getter and setter
- * will be utilized to help resolve variables and functions. If it fails to
- * resolve the graph, then 0 will be returned with an error code set. Otherwise,
- * the result is returned:
+ * Afterwards, the graph can be resolved into a single node by passing the
+ * graph into sfe_resolve() along with a pointer to where the result should
+ * be stored. When called, the chosen value getter and setter* will be utilized
+ * to help resolve variables and functions. If it fails to  resolve the graph,
+ * then SFE_FALSE will be returned with an error code set. Otherwise, the result
+ * is returned. If the result is a string, make sure to call free() on it when
+ * finished to prevent a memory leak:
  * 
- *     sfe_num result = sfe_resolve(graph);
- *     if (sfe_get_error() == SFE_OK) {
+ *     sfe_value result;
+ *     sfe_bool success = sfe_resolve(graph, &result);
+ *     if (success) {
  *         ["result" is valid here]
+ *         if (result->string) {
+ *             free(result->string);
+ *         }
  *     } else {
- *         ["result" is 0 here, with an error code set]
+ *         ["result" is invalid here, with an error code set]
  *     }
  * 
- * When finished with the graph, it should be deleted via sfe_delete() to prevent
- * a memory leak:
+ * When finished with the graph, it should be deleted via sfe_delete() to
+ * prevent a memory leak:
  * 
  *     if (graph) {
  *         sfe_delete(graph);
@@ -193,6 +203,13 @@
  *     digits from 0 to 7. Hexadecimal numbers adds digits A to F.
  * 
  *     Nodes with a number are set to type SFE_NUMBER.
+ * 
+ * Strings:
+ * 
+ *     If there's a string of characters surrounded by a ' or ", then it will
+ *     be considered a string.
+ * 
+ *     Nodes with a string are set to type SFE_STRING.
  * 
  * Symbols:
  * 
@@ -243,7 +260,7 @@
  *     ~ (Bitwise NOT)
  *     ! (Logical NOT)
  * 
- *     One or more of them can be placed before any operand:
+ *     One or more of them can be placed before any operand (except strings):
  * 
  *         -25
  *         ~+x
@@ -263,14 +280,16 @@
  *     ++ (Increment)
  *     -- (Decrement)
  * 
- *     They can be placed before or after a symbol or array operand:
+ *     They can be placed before or after a symbol or array operand containing
+ *     a number (not a string):
  * 
  *         ++x
  *         array[x]--
  * 
- *     They cannot be placed with a number, subexpression, or function:
+ *     They cannot be placed with a number, string, subexpression, or function:
  * 
  *         ++2
+ *         "string"--
  *         --(x)
  *         (x + y)++
  *         function(x)--
@@ -317,6 +336,22 @@
  * 
  *         x * y
  * 
+ *     When working with strings, only the addition and comparison operators
+ *     can be used:
+ * 
+ *         "x" + "y"
+ *         "x" == "y"
+ *         "x" != "y"
+ *         "x" < "y"
+ *         "x" <= "y"
+ *         "x" > "y"
+ *         "x" >= "y"
+ * 
+ *     When working with both numbers and strings, only the addition operator
+ *     can be used to combine them:
+ *     
+ *         "x" + 1 (appends "1" to "x")
+ * 
  * Assignment operators:
  * 
  *     =   (Assignment)
@@ -344,6 +379,17 @@
  *     
  *         x += y
  *         x *= (y - z)
+ * 
+ *     When working with strings, only regular and addition assignment
+ *     operators can be used:
+ * 
+ *         x = "y"
+ *         x += "y"
+ * 
+ *     When working with both numbers and strings, only the addition
+ *     assignment operator can be used to combine them:
+ *     
+ *         x += 1 (appends "1" to the string stored in x)
  */
 
 /*
@@ -365,6 +411,7 @@
  *     SFE_NO_RIGHT_PARENTHESIS (No right parenthesis)
  *     SFE_NO_LEFT_BRACKET      (No left bracket)
  *     SFE_NO_RIGHT_BRACKET     (No right bracket)
+ *     SFE_NO_RIGHT_QUOTE       (No right quotation mark)
  *     SFE_NO_ARRAY_NAME        (No array name)
  *     SFE_UNEXPECTED_COMMA     (Unexpected comma)
  *     SFE_NOT_NUMBER           (Not a number)
@@ -382,6 +429,7 @@
  * CHANGELOG:
  *     v1.0   (2026/07/10) - Initial version
  *     v1.0.1 (2026/07/14) - Add symbol validator support
+ *     v1.1   (2026/07/15) - Add string support
  */
 
 #ifndef SFEXPARSE_H
@@ -421,6 +469,7 @@ typedef enum {
     SFE_NO_RIGHT_PARENTHESIS,
     SFE_NO_LEFT_BRACKET,
     SFE_NO_RIGHT_BRACKET,
+    SFE_NO_RIGHT_QUOTE,
     SFE_NO_ARRAY_NAME,
     SFE_UNEXPECTED_COMMA,
     SFE_NOT_NUMBER,
@@ -438,6 +487,7 @@ typedef enum {
 typedef enum {
     SFE_TYPE_UNKNOWN = -1,
     SFE_NUMBER,
+    SFE_STRING,
     SFE_SYMBOL,
     SFE_SUBEXPRESSION,
     SFE_FUNCTION,
@@ -494,7 +544,7 @@ typedef struct sfe_graph_ {
 typedef struct sfe_node_ {
     sfe_type type;
     sfe_num number;
-    char* symbol;
+    char* string;
     sfe_unary* unary;
     sfe_inc* pre;
     sfe_inc* post;
@@ -510,8 +560,14 @@ typedef struct sfe_node_ {
     struct sfe_node_* next;
 } sfe_node;
 
-typedef sfe_error (*sfe_getter)(const sfe_node* const node, sfe_num* const value);
-typedef sfe_error (*sfe_setter)(const sfe_node* const node, sfe_num value);
+typedef struct sfe_value_ {
+    sfe_type type;
+    sfe_num number;
+    char* string;
+} sfe_value;
+
+typedef sfe_error (*sfe_getter)(const sfe_node* const node, sfe_value* const value);
+typedef sfe_error (*sfe_setter)(const sfe_node* const node, const sfe_value* const value);
 typedef sfe_bool (*sfe_validator)(const char* symbol);
 
 /*
@@ -543,45 +599,24 @@ sfe_error sfe_get_error(void);
 const char* sfe_error_string(void);
 
 /*
- * Get node type
+ * Set value number
  *
  * ARGUMENTS:
- *     node - Node
- * RETURNS:
- *     Node type
+ *     value  - Value to store number in
+ *     number - Number to store
  */
-sfe_type sfe_get_type(const sfe_node* const node);
+void sfe_set_number(sfe_value* const node, sfe_num number);
 
 /*
- * Get node symbol
+ * Set value string
  *
  * ARGUMENTS:
- *     node - Node
+ *     value  - Value to store string in
+ *     string - String to store
  * RETURNS:
- *     Node symbol
+ *     True if successful, false if failed
  */
-const char* sfe_get_symbol(const sfe_node* const node);
-
-/*
- * Get number of sub-graphs in node
- * 
- * ARGUMENTS:
- *     node - Node
- * RETURNS:
- *     Number of sub-graphs
- */
-sfe_uint sfe_get_sub_count(const sfe_node* const node);
-
-/*
- * Get value of node sub-graph
- * 
- * ARGUMENTS:
- *     node  - Node
- *     index - Sub-graph index
- * RETURNS:
- *     Value of sub-graph
- */
-sfe_num sfe_get_sub(const sfe_node* const node, sfe_uint index);
+sfe_bool sfe_set_string(sfe_value* const node, char* string);
 
 /*
  * Parse expression
@@ -625,11 +660,12 @@ void sfe_delete(sfe_graph* graph);
  * Resolve graph
  *
  * ARGUMENTS:
- *     graph - Graph
+ *     graph  - Graph
+ *     result - Result storage
  * RETURNS:
- *     Result if successful, 0 if failed
+ *     True if successful, false if failed
  */
-sfe_num sfe_resolve(sfe_graph* graph);
+sfe_bool sfe_resolve(sfe_graph* graph, sfe_value* result);
 
 #ifdef SFEXPARSE_IMPLEMENTATION
 
@@ -656,6 +692,8 @@ typedef enum {
 
 typedef struct sfe_work_ {
     const char* expression;
+    const char* string_start;
+    const char* string_end;
     const char* symbol_start;
     const char* symbol_end;
 } sfe_work;
@@ -723,6 +761,7 @@ const char* sfe_error_string(void)
         "No right parenthesis",         /* SFE_NO_RIGHT_PARENTHESIS */
         "No left bracket",              /* SFE_NO_LEFT_BRACKET */
         "No right bracket",             /* SFE_NO_RIGHT_BRACKET */
+        "No right quotation mark",      /* SFE_NO_RIGHT_QUOTE */
         "No array name",                /* SFE_NO_ARRAY_NAME */
         "Unexpected comma",             /* SFE_UNEXPECTED_COMMA */
         "Not a number",                 /* SFE_NOT_NUMBER */
@@ -773,8 +812,8 @@ static void sfe_delete_subs(sfe_node* node)
 
 static void sfe_delete_node(sfe_node* node)
 {
-    if (node->symbol) {
-        free(node->symbol);
+    if (node->string) {
+        free(node->string);
     }
 
     if (node->unary) {
@@ -811,24 +850,50 @@ static void sfe_delete_node(sfe_node* node)
     free(node);
 }
 
-sfe_type sfe_get_type(const sfe_node* const node)
+static char* sfe_clone_string(char* string)
 {
-    return node->type;
+    char* clone = SFE_NULL;
+    size_t length;
+
+    if (string) {
+        length = (strlen(string) + 1) * sizeof(char);
+        clone = malloc(length);
+        if (!clone) {
+            sfe_error_code = SFE_ALLOCATION_FAILED;
+            return SFE_NULL;
+        }
+        memcpy(clone, string, length);
+    }
+
+    sfe_error_code = SFE_OK;
+    return clone;
 }
 
-const char* sfe_get_symbol(const sfe_node* const node)
+void sfe_set_number(sfe_value* const value, sfe_num number)
 {
-    return node->symbol;
+    value->type = SFE_NUMBER;
+    value->number = number;
+
+    if (value->string) {
+        free(value->string);
+        value->string = SFE_NULL;
+    }
 }
 
-sfe_uint sfe_get_sub_count(const sfe_node* const node)
+sfe_bool sfe_set_string(sfe_value* const value, char* string)
 {
-    return node->sub_count;
-}
+    value->type = SFE_STRING;
+    value->number = 0;
 
-sfe_num sfe_get_sub(const sfe_node* const node, sfe_uint index)
-{
-    return node->subs[index]->head->number;
+    if (value->string) {
+        free(value->string);
+    }
+    value->string = sfe_clone_string(string);
+    if (sfe_error_code != SFE_OK) {
+        return SFE_FALSE;
+    }
+
+    return SFE_TRUE;
 }
 
 static void sfe_add_node(sfe_graph* graph, sfe_node* node)
@@ -955,17 +1020,17 @@ static sfe_graph* sfe_do_clone(sfe_graph* graph, sfe_node* parent, sfe_bool incr
         node_clone->binary = node->binary;
         node_clone->assign = node->assign;
 
-        if (node->symbol) {
-            length = (strlen(node->symbol) + 1) * sizeof(char);
+        if (node->string) {
+            length = (strlen(node->string) + 1) * sizeof(char);
 
-            node_clone->symbol = (char*)malloc(length);
-            if (!node_clone->symbol) {
+            node_clone->string = (char*)malloc(length);
+            if (!node_clone->string) {
                 sfe_delete(graph_clone);
                 sfe_error_code = SFE_ALLOCATION_FAILED;
                 return SFE_FALSE;
             }
 
-            memcpy(node_clone->symbol, node->symbol, length);
+            memcpy(node_clone->string, node->string, length);
         }
 
         if (node->unary) {
@@ -1035,27 +1100,229 @@ sfe_graph* sfe_clone(sfe_graph* graph)
     return sfe_do_clone(graph, SFE_NULL, SFE_TRUE);
 }
 
-static sfe_num sfe_get_value(sfe_node* node)
+static sfe_num sfe_to_number(char* string)
 {
-    sfe_num value = 0;
+    sfe_num number;
+    char* end;
+    sfe_int base;
+    size_t i;
+#ifdef SFEXPARSE_USE_FLOAT
+    sfe_bool integer = SFE_TRUE;
+#endif
 
-    sfe_error_code = SFE_CANT_GET_VALUE;
+    errno = 0;
 
-    if (node->type == SFE_NUMBER) {
-        value = node->number;
-        sfe_error_code = SFE_OK;
-    } else if (sfe_do_get_value) {
-        sfe_error_code = sfe_do_get_value(node, &value);
+    base = 10;
+    if (string[0] == '0') {
+        if (string[1]) {
+            switch (string[1]) {
+                case 'b':
+                case 'B':
+                    base = 2;
+                    string += 2;
+                    break;
+
+                case 'o':
+                case 'O':
+                    base = 8;
+                    string += 2;
+                    break;
+
+                case 'x':
+                case 'X':
+                    base = 16;
+                    string += 2;
+                    break;
+            }
+        }
     }
 
-    return value;
+    switch (base) {
+        case 2:
+            for (i = 0; i < strlen(string); i++) {
+                if (!(string[i] >= '0' && string[i] <= '1')) {
+                    sfe_error_code = SFE_BAD_NUMBER;
+                    return 0;
+                }
+            }
+            break;
+
+        case 8:
+            for (i = 0; i < strlen(string); i++) {
+                if (!(string[i] >= '0' && string[i] <= '7')) {
+                    sfe_error_code = SFE_BAD_NUMBER;
+                    return 0;
+                }
+            }
+            break;
+
+        case 10:
+            for (i = 0; i < strlen(string); i++) {
+#ifdef SFEXPARSE_USE_FLOAT
+                if (string[i] == '.') {
+                    integer = SFE_FALSE;
+                    continue;
+                }
+#endif
+                if (!(string[i] >= '0' && string[i] <= '9')) {
+                    if (i == 0) {
+                        sfe_error_code = SFE_NOT_NUMBER;
+                    } else {
+                        sfe_error_code = SFE_BAD_NUMBER;
+                    }
+                    return 0;
+                }
+            }
+            break;
+
+        case 16:
+            for (i = 0; i < strlen(string); i++) {
+                if (!(string[i] >= '0' && string[i] <= '9') &&
+                    !(string[i] >= 'A' && string[i] <= 'F') && !(string[i] >= 'a' && string[i] <= 'f')) {
+                    sfe_error_code = SFE_BAD_NUMBER;
+                    return 0;
+                }
+            }
+            break;
+    }
+
+#ifdef SFEXPARSE_USE_FLOAT
+    if (!integer) {
+        number = strtod(string, &end);
+        if (errno != 0 || end == string) {
+            sfe_error_code = SFE_NOT_NUMBER;
+            return 0;
+        }
+        
+        sfe_error_code = SFE_OK;
+        return number;
+    }
+#endif
+
+    number = strtol(string, &end, base);
+    if (errno != 0 || end == string) {
+        sfe_error_code = SFE_NOT_NUMBER;
+        return 0;
+    }
+
+    sfe_error_code = SFE_OK;
+    return number;
 }
 
-static sfe_bool sfe_assign(sfe_node* node, sfe_num value)
+static char* sfe_sprintf(const char* format, sfe_num number)
+{
+    static char buffer[32];
+    size_t length;
+    char* string;
+
+    length = ((size_t)sprintf(buffer, format, number) + 1) * sizeof(char);
+    string = (char*)malloc(length);
+    if (!string) {
+        sfe_error_code = SFE_ALLOCATION_FAILED;
+        return SFE_NULL;
+    }
+    memcpy(string, buffer, length);
+
+    sfe_error_code = SFE_OK;
+    return string;
+}
+
+static char* sfe_from_number(sfe_num number)
+{
+    char* string;
+#ifdef SFEXPARSE_USE_FLOAT
+    size_t i;
+#endif
+
+#ifdef SFEXPARSE_USE_FLOAT
+    string = sfe_sprintf("%f", number);
+    if (!string) {
+        return SFE_NULL;
+    }
+
+    for (i = strlen(string); i > 0; i--) {
+        if (string[i - 1] == '.') {
+            string[i - 1] = '\0';
+            break;
+        } else if (string[i - 1] != '0') {
+            string[i] = '\0';
+            break;
+        }
+    }
+#else
+    string = sfe_sprintf("%ld", number);
+    if (!string) {
+        return SFE_NULL;
+    }
+#endif
+
+    sfe_error_code = SFE_OK;
+    return string;
+}
+
+static char* sfe_append(char* base, const char* append)
+{
+    char* string;
+    size_t length_1;
+    size_t length_2;
+
+    length_2 = strlen(append) + 1;
+    if (!base) {
+        length_1 = 0;
+        string = (char*)malloc(length_2 * sizeof(char));
+    } else {
+        length_1 = strlen(base);
+        string = (char*)realloc(base, (length_1 + length_2) * sizeof(char));
+    }
+    if (!string) {
+        if (base) {
+            free(base);
+        }
+        sfe_error_code = SFE_ALLOCATION_FAILED;
+        return SFE_NULL;
+    }
+
+    memcpy(string + length_1, append, length_2 * sizeof(char));
+
+    sfe_error_code = SFE_OK;
+    return string;
+}
+
+static sfe_bool sfe_get_value(sfe_node* node, sfe_value* value)
+{
+    sfe_error_code = SFE_CANT_GET_VALUE;
+
+    switch (node->type) {
+        case SFE_NUMBER:
+            value->type = SFE_NUMBER;
+            value->number = node->number;
+            sfe_error_code = SFE_OK;
+            break;
+
+        case SFE_STRING:
+            value->type = SFE_STRING;
+            value->string = node->string;
+            sfe_error_code = SFE_OK;
+            break;
+
+        default:
+            if (sfe_do_get_value) {
+                sfe_error_code = sfe_do_get_value(node, value);
+            }
+            break;
+    }
+
+    if (sfe_error_code != SFE_OK) {
+        return SFE_FALSE;
+    }
+    return SFE_TRUE;
+}
+
+static sfe_bool sfe_assign(sfe_node* node, sfe_value* value)
 {
     sfe_error_code = SFE_CANT_SET_VALUE;
 
-    if (node->type != SFE_NUMBER) {
+    if (node->type != SFE_NUMBER && node->type != SFE_STRING) {
         if (sfe_do_set_value) {
             sfe_error_code = sfe_do_set_value(node, value);
         }
@@ -1108,7 +1375,9 @@ static sfe_bool sfe_do_increment(sfe_graph* graph, sfe_bool post)
     sfe_uint i;
     sfe_inc* increments;
     sfe_uint count;
-    sfe_num value;
+    sfe_value value;
+
+    memset(&value, 0, sizeof(sfe_value));
 
     node = graph->head;
     while (node) {
@@ -1129,16 +1398,22 @@ static sfe_bool sfe_do_increment(sfe_graph* graph, sfe_bool post)
         }
 
         for (i = 0; i < count; i++) {
-            value = sfe_get_value(node);
-            if (sfe_error_code != SFE_OK) {
+            if (!sfe_get_value(node, &value)) {
                 return SFE_FALSE;
             }
-            if (increments[i] == SFE_INCREMENT) {
-                value++;
+
+            if (value.type == SFE_NUMBER) {
+                if (increments[i] == SFE_INCREMENT) {
+                    value.number++;
+                } else {
+                    value.number--;
+                }
             } else {
-                value--;
+                sfe_error_code = SFE_BAD_OPERATOR;
+                return SFE_FALSE;
             }
-            if (!sfe_assign(node, value)) {
+
+            if (!sfe_assign(node, &value)) {
                 return SFE_FALSE;
             }
         }
@@ -1150,10 +1425,67 @@ static sfe_bool sfe_do_increment(sfe_graph* graph, sfe_bool post)
     return SFE_TRUE;
 }
 
+static sfe_bool sfe_check_binary(sfe_node* left, sfe_node* right)
+{
+    if (left->type == SFE_STRING && right->type == SFE_STRING) {
+        switch (left->binary) {
+            case SFE_ADD:
+            case SFE_EQUAL:
+            case SFE_NOT_EQUAL:
+            case SFE_LESS:
+            case SFE_LESS_EQUAL:
+            case SFE_GREATER:
+            case SFE_GREATER_EQUAL:
+                break;
+
+            default:
+                sfe_error_code = SFE_BAD_OPERATOR;
+                return SFE_FALSE;
+        }
+    } else if (left->type == SFE_STRING) {
+        if (left->binary != SFE_ADD) {
+            sfe_error_code = SFE_BAD_OPERATOR;
+            return SFE_FALSE;
+        }
+    } else if (right->type == SFE_STRING) {
+        if (!left->assign) {
+            if (left->binary != SFE_ADD) {
+                sfe_error_code = SFE_BAD_OPERATOR;
+                return SFE_FALSE;
+            }
+        } else if (left->binary != SFE_EQUAL && left->binary != SFE_ADD) {
+            sfe_error_code = SFE_BAD_OPERATOR;
+            return SFE_FALSE;
+        }
+    } else if (right->type == SFE_NUMBER) {
+         switch (left->binary) {
+            case SFE_DIVIDE:
+                if (right->number == 0) {
+                    sfe_error_code = SFE_DIVIDE_BY_ZERO;
+                    return SFE_FALSE;
+                }
+                break;
+
+            case SFE_MODULO:
+                if ((sfe_int)right->number == 0) {
+                    sfe_error_code = SFE_DIVIDE_BY_ZERO;
+                    return SFE_FALSE;
+                }
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    sfe_error_code = SFE_OK;
+    return SFE_TRUE;
+}
+
 static sfe_num sfe_do_binary(sfe_num left, sfe_num right, sfe_binary binary)
 {
     sfe_uint i;
-    sfe_num result = 0;
+    sfe_num result;
 
     switch (binary) {
         case SFE_ADD:
@@ -1182,18 +1514,10 @@ static sfe_num sfe_do_binary(sfe_num left, sfe_num right, sfe_binary binary)
             break;
 
         case SFE_DIVIDE:
-            if (right == 0) {
-                sfe_error_code = SFE_DIVIDE_BY_ZERO;
-                return 0;
-            }
             result = left / right;
             break;
 
         case SFE_MODULO:
-            if ((sfe_int)right == 0) {
-                sfe_error_code = SFE_DIVIDE_BY_ZERO;
-                return 0;
-            }
             result = (sfe_num)((sfe_int)left % (sfe_int)right);
             break;
 
@@ -1250,11 +1574,54 @@ static sfe_num sfe_do_binary(sfe_num left, sfe_num right, sfe_binary binary)
             break;
 
         default:
-            sfe_error_code = SFE_BAD_NODE;
-            return SFE_FALSE;
+            result = 0;
+            break;
     }
 
-    sfe_error_code = SFE_OK;
+    return result;
+}
+
+static sfe_num sfe_compare_strings(char* left, char* right, sfe_binary binary)
+{
+    sfe_num result;
+
+    if (!left) {
+        left = "";
+    }
+    if (!right) {
+        right = "";
+    }
+
+    switch (binary) {
+        case SFE_EQUAL:
+            result = strcmp(left, right) ? 0 : 1;
+            break;
+
+        case SFE_NOT_EQUAL:
+            result = strcmp(left, right) ? 1 : 0;
+            break;
+
+        case SFE_LESS:
+            result = (strcmp(left, right) < 0) ? 1 : 0;
+            break;
+
+        case SFE_LESS_EQUAL:
+            result = (strcmp(left, right) <= 0) ? 1 : 0;
+            break;
+
+        case SFE_GREATER:
+            result = (strcmp(left, right) > 0) ? 1 : 0;
+            break;
+
+        case SFE_GREATER_EQUAL:
+            result = (strcmp(left, right) >= 0) ? 1 : 0;
+            break;
+
+        default:
+            result = 0;
+            break;
+    }
+
     return result;
 }
 
@@ -1357,19 +1724,97 @@ static sfe_bool sfe_add_group(sfe_node* node, sfe_group* groups, sfe_group_id id
     return SFE_TRUE;
 }
 
+static sfe_bool sfe_do_group_node(sfe_node* node, sfe_value* value)
+{
+    char* string;
+    char* append;
+
+    if (value->type == SFE_NUMBER) {
+        if (node->next->type == SFE_NUMBER) {
+            node->next->number = sfe_do_binary(value->number, node->next->number, node->binary);
+        } else if (node->next->type == SFE_STRING) {
+            string = sfe_from_number(value->number);
+            if (!string) {
+                return SFE_FALSE;
+            }
+
+            if (node->next->string) {
+                string = sfe_append(string, node->next->string);
+                if (!string) {
+                    return SFE_FALSE;
+                }
+                free(node->next->string);
+            }
+            node->next->string = string;
+        }
+    } else if (value->type == SFE_STRING) {
+        if (node->next->type == SFE_NUMBER) {
+            string = sfe_clone_string(value->string);
+            if (sfe_error_code != SFE_OK) {
+                return SFE_FALSE;
+            }
+            append = sfe_from_number(node->next->number);
+            if (!append) {
+                free(string);
+                return SFE_FALSE;
+            }
+
+            node->next->type = SFE_STRING;
+            node->next->number = 0;
+            node->next->string = sfe_append(string, append);
+            free(append);
+            if (!node->next->string) {
+                return SFE_FALSE;
+            }
+        } else if (node->next->type == SFE_STRING) {
+            if (node->binary == SFE_ADD) {
+                string = sfe_clone_string(value->string);
+                if (sfe_error_code != SFE_OK) {
+                    return SFE_FALSE;
+                }
+
+                if (node->next->string) {
+                    string = sfe_append(string, node->next->string);
+                    if (!string) {
+                        return SFE_FALSE;
+                    }
+                    free(node->next->string);
+                }
+                node->next->string = string;
+            } else {
+                node->next->type = SFE_NUMBER;
+                node->next->number = sfe_compare_strings(node->string, node->next->string, node->binary);
+                if (node->next->string) {
+                    free(node->next->string);
+                    node->next->string = SFE_NULL;
+                }
+            }
+        }
+    }
+
+    sfe_error_code = SFE_OK;
+    return SFE_TRUE;
+}
+
 static sfe_bool sfe_do_groups(sfe_group* groups, sfe_bool assign)
 {
     sfe_uint i;
     sfe_uint j;
     sfe_node* node;
-    sfe_num left;
+    sfe_value value;
+
+    memset(&value, 0, sizeof(sfe_value));
 
     if (!assign) {
         for (i = 0; i < SFE_GROUP_COUNT; i++) {
             for (j = 0; j < groups[i].count; j++) {
                 node = groups[i].array[j];
-                node->next->number = sfe_do_binary(node->number, node->next->number, node->binary);
-                if (sfe_error_code != SFE_OK) {
+
+                value.type = node->type;
+                value.number = node->number;
+                value.string = node->string;
+
+                if (!sfe_do_group_node(node, &value)) {
                     return SFE_FALSE;
                 }
                 sfe_delete_node(node);
@@ -1378,17 +1823,20 @@ static sfe_bool sfe_do_groups(sfe_group* groups, sfe_bool assign)
     } else {
         for (i = 0; i < groups[0].count; i++) {
             node = groups[0].array[i];
+
             if (node->binary != SFE_EQUAL) {
-                left = sfe_get_value(node);
-                if (sfe_error_code != SFE_OK) {
+                if (!sfe_get_value(node, &value)) {
                     return SFE_FALSE;
-                }
-                node->next->number = sfe_do_binary(left, node->next->number, node->binary);
-                if (sfe_error_code != SFE_OK) {
+                } else if (!sfe_do_group_node(node, &value)) {
                     return SFE_FALSE;
                 }
             }
-            if (!sfe_assign(node, node->next->number)) {
+
+            value.type = node->next->type;
+            value.number = node->next->number;
+            value.string = node->next->string;
+
+            if (!sfe_assign(node, &value)) {
                 return SFE_FALSE;
             }
             sfe_delete_node(node);
@@ -1422,7 +1870,10 @@ static sfe_bool sfe_do_optimize(sfe_graph* graph, sfe_group* groups)
 
         sfe_do_unary(node);
         if (node->previous) {
-            if (node->type == SFE_NUMBER && node->previous->type == SFE_NUMBER) {
+            if (!sfe_check_binary(node->previous, node)) {
+                return SFE_FALSE;
+            } else if ((node->type == SFE_NUMBER || node->type == SFE_STRING) &&
+                (node->previous->type == SFE_NUMBER || node->previous->type == SFE_STRING)) {
                 if (!sfe_add_group(node->previous, groups, sfe_group_ids[node->previous->binary])) {
                     return SFE_FALSE;
                 }
@@ -1459,8 +1910,10 @@ sfe_bool sfe_resolve_step(sfe_graph* graph, sfe_bool assign);
 static sfe_bool sfe_do_resolve_step(sfe_graph* graph, sfe_bool assign, sfe_group* groups)
 {
     sfe_node* node;
-    sfe_num value;
+    sfe_value value;
     sfe_uint i;
+
+    memset(&value, 0, sizeof(sfe_value));
 
     node = !assign ? graph->head : graph->tail;
     while (node) {
@@ -1476,24 +1929,25 @@ static sfe_bool sfe_do_resolve_step(sfe_graph* graph, sfe_bool assign, sfe_group
             }
         }
 
-        if (node->type != SFE_NUMBER && !node->assign) {
-            value = sfe_get_value(node);
-            if (sfe_error_code != SFE_OK) {
+        if (node->type != SFE_NUMBER && node->type != SFE_STRING && !node->assign) {
+            if (!sfe_get_value(node, &value)) {
                 return SFE_FALSE;
             }
 
-            node->type = SFE_NUMBER;
-            node->number = value;
-            if (node->symbol) {
-                free(node->symbol);
-                node->symbol = SFE_NULL;
+            node->type = value.type;
+            node->number = value.number;
+            if (node->string) {
+                free(node->string);
             }
+            node->string = value.string;
             sfe_delete_subs(node);
         }
 
         sfe_do_unary(node);
         if (node->previous) {
-            if (!assign && !node->previous->assign) {
+            if (!sfe_check_binary(node->previous, node)) {
+                return SFE_FALSE;
+            } else if (!assign && !node->previous->assign) {
                 if (!sfe_add_group(node->previous, groups, sfe_group_ids[node->previous->binary])) {
                     return SFE_FALSE;
                 }
@@ -1529,10 +1983,9 @@ sfe_bool sfe_resolve_step(sfe_graph* graph, sfe_bool assign)
     return success;
 }
 
-sfe_num sfe_resolve(sfe_graph* graph)
+sfe_bool sfe_resolve(sfe_graph* graph, sfe_value* result)
 {
     sfe_graph* resolve;
-    sfe_num result = 0;
 
     if (!sfe_do_increment(graph, SFE_FALSE)) {
         return 0;
@@ -1540,25 +1993,38 @@ sfe_num sfe_resolve(sfe_graph* graph)
 
     resolve = sfe_do_clone(graph, SFE_NULL, SFE_FALSE);
     if (!resolve) {
-        return 0;
+        return SFE_FALSE;
     }
 
     if (!sfe_resolve_step(resolve, SFE_FALSE)) {
         sfe_delete(resolve);
-        return 0;
+        return SFE_FALSE;
     } else if (!sfe_resolve_step(resolve, SFE_TRUE)) {
         sfe_delete(resolve);
-        return 0;
+        return SFE_FALSE;
     }
 
     if (!sfe_do_increment(graph, SFE_TRUE)) {
         sfe_delete(resolve);
-        return 0;
+        return SFE_FALSE;
     }
 
-    result = resolve->head->number;
+    if (resolve->head->type == SFE_NUMBER || resolve->head->type == SFE_STRING) {
+        result->type = resolve->head->type;
+        result->number = resolve->head->number;
+        if (resolve->head->string) {
+            result->string = sfe_clone_string(resolve->head->string);
+        } else {
+            result->string = SFE_NULL;
+        }
+    }
+
     sfe_delete(resolve);
-    return result;
+
+    if (sfe_error_code != SFE_OK) {
+        return SFE_FALSE;
+    }
+    return SFE_TRUE;
 }
 
 static sfe_bool sfe_add_unary(sfe_node* node, const sfe_unary unary)
@@ -1707,164 +2173,34 @@ static sfe_bool sfe_check_last(sfe_node* node)
     return SFE_TRUE;
 }
 
-static sfe_num sfe_to_number(char* string)
+static sfe_bool sfe_parse_string(sfe_work* work, sfe_node* node)
 {
-    sfe_num number;
-    char* end;
-    sfe_int base;
-    size_t i;
-#ifdef SFEXPARSE_USE_FLOAT
-    sfe_bool integer = SFE_TRUE;
-#endif
-
-    errno = 0;
-
-    base = 10;
-    if (string[0] == '0') {
-        if (string[1] != '\0') {
-            switch (string[1]) {
-                case 'b':
-                case 'B':
-                    base = 2;
-                    string += 2;
-                    break;
-
-                case 'o':
-                case 'O':
-                    base = 8;
-                    string += 2;
-                    break;
-
-                case 'x':
-                case 'X':
-                    base = 16;
-                    string += 2;
-                    break;
-            }
-        }
-    }
-
-    switch (base) {
-        case 2:
-            for (i = 0; i < strlen(string); i++) {
-                if (!(string[i] >= '0' && string[i] <= '1')) {
-                    sfe_error_code = SFE_BAD_NUMBER;
-                    return 0;
-                }
-            }
-            break;
-
-        case 8:
-            for (i = 0; i < strlen(string); i++) {
-                if (!(string[i] >= '0' && string[i] <= '7')) {
-                    sfe_error_code = SFE_BAD_NUMBER;
-                    return 0;
-                }
-            }
-            break;
-
-        case 10:
-            for (i = 0; i < strlen(string); i++) {
-#ifdef SFEXPARSE_USE_FLOAT
-                if (string[i] == '.') {
-                    integer = SFE_FALSE;
-                    continue;
-                }
-#endif
-                if (!(string[i] >= '0' && string[i] <= '9')) {
-                    if (i == 0) {
-                        sfe_error_code = SFE_NOT_NUMBER;
-                    } else {
-                        sfe_error_code = SFE_BAD_NUMBER;
-                    }
-                    return 0;
-                }
-            }
-            break;
-
-        case 16:
-            for (i = 0; i < strlen(string); i++) {
-                if (!(string[i] >= '0' && string[i] <= '9') &&
-                    !(string[i] >= 'A' && string[i] <= 'F') && !(string[i] >= 'a' && string[i] <= 'f')) {
-                    sfe_error_code = SFE_BAD_NUMBER;
-                    return 0;
-                }
-            }
-            break;
-    }
-
-#ifdef SFEXPARSE_USE_FLOAT
-    if (!integer) {
-        number = strtod(string, &end);
-        if (errno != 0 || end == string) {
-            sfe_error_code = SFE_NOT_NUMBER;
-            return 0;
-        }
-        
-        sfe_error_code = SFE_OK;
-        return number;
-    }
-#endif
-
-    number = strtol(string, &end, base);
-    if (errno != 0 || end == string) {
-        sfe_error_code = SFE_NOT_NUMBER;
-        return 0;
-    }
-
-    sfe_error_code = SFE_OK;
-    return number;
-}
-
-static char* sfe_sprintf(const char* format, sfe_num number)
-{
-    static char buffer[32];
     size_t length;
-    char* string;
+    char* append;
 
-    length = (sprintf(buffer, format, number) + 1) * sizeof(char);
-    string = (char*)malloc(length);
-    if (!string) {
-        sfe_error_code = SFE_ALLOCATION_FAILED;
-        return SFE_NULL;
-    }
-    memcpy(string, buffer, length);
+    if (work->string_start) {
+        length = work->string_end - work->string_start;
 
-    sfe_error_code = SFE_OK;
-    return string;
-}
-
-static char* sfe_from_number(sfe_num number)
-{
-    char* string;
-#ifdef SFEXPARSE_USE_FLOAT
-    size_t i;
-#endif
-
-#ifdef SFEXPARSE_USE_FLOAT
-    string = sfe_sprintf("%f", number);
-    if (!string) {
-        return SFE_NULL;
-    }
-
-    for (i = strlen(string); i > 0; i--) {
-        if (string[i - 1] == '.') {
-            string[i - 1] = '\0';
-            break;
-        } else if (string[i - 1] != '0') {
-            string[i] = '\0';
-            break;
+        append = malloc((length + 1) * sizeof(char));
+        if (!append) {
+            sfe_error_code = SFE_ALLOCATION_FAILED;
+            return SFE_FALSE;
         }
-    }
-#else
-    string = sfe_sprintf("%ld", number);
-    if (!string) {
-        return SFE_NULL;
-    }
-#endif
+        memcpy(append, work->string_start, length * sizeof(char));
+        append[length] = '\0';
 
-    sfe_error_code = SFE_OK;
-    return string;
+        node->string = sfe_append(node->string, append);
+        free(append);
+        if (!node->string) {
+            return SFE_FALSE;
+        }
+
+        work->string_start = SFE_NULL;
+        work->string_end = SFE_NULL;
+    }
+
+    node->type = SFE_STRING;
+    return SFE_TRUE;
 }
 
 static sfe_bool sfe_parse_symbol(sfe_work* work, sfe_node* node)
@@ -1874,23 +2210,23 @@ static sfe_bool sfe_parse_symbol(sfe_work* work, sfe_node* node)
 
     if (work->symbol_start) {
         length = work->symbol_end - work->symbol_start;
-        node->symbol = (char*)malloc((length + 1) * sizeof(char));
-        if (!node->symbol) {
+        node->string = (char*)malloc((length + 1) * sizeof(char));
+        if (!node->string) {
             sfe_error_code = SFE_ALLOCATION_FAILED;
             return SFE_FALSE;
         }
         
-        memcpy(node->symbol, work->symbol_start, length * sizeof(char));
-        node->symbol[length] = '\0';
+        memcpy(node->string, work->symbol_start, length * sizeof(char));
+        node->string[length] = '\0';
 
-        number = sfe_to_number(node->symbol);
+        number = sfe_to_number(node->string);
 
         switch (sfe_error_code) {
             case SFE_OK:
                 node->type = SFE_NUMBER;
                 node->number = number;
-                free(node->symbol);
-                node->symbol = SFE_NULL;
+                free(node->string);
+                node->string = SFE_NULL;
 
                 if (node->pre) {
                     sfe_error_code = SFE_BAD_OPERATOR;
@@ -1900,7 +2236,7 @@ static sfe_bool sfe_parse_symbol(sfe_work* work, sfe_node* node)
 
             case SFE_NOT_NUMBER:
                 if (sfe_do_validate) {
-                    if (!sfe_do_validate(node->symbol)) {
+                    if (!sfe_do_validate(node->string)) {
                         sfe_error_code = SFE_BAD_SYMBOL;
                         return SFE_FALSE;
                     }
@@ -1909,8 +2245,8 @@ static sfe_bool sfe_parse_symbol(sfe_work* work, sfe_node* node)
                 break;
 
             default:
-                free(node->symbol);
-                node->symbol = SFE_NULL;
+                free(node->string);
+                node->string = SFE_NULL;
                 return SFE_FALSE;
         }
 
@@ -1924,10 +2260,41 @@ static sfe_bool sfe_parse_symbol(sfe_work* work, sfe_node* node)
 
 static sfe_bool sfe_do_parse(sfe_work* work, sfe_node* node)
 {
+    char string = '\0';
+    char c;
     sfe_graph* sub;
 
-    while (*work->expression != '\0') {
-        switch (*(work->expression++)) {
+    while ((c = *work->expression)) {
+        work->expression++;
+
+        if (string) {
+            if (c == string) {
+                if (!sfe_parse_string(work, node)) {
+                    return SFE_FALSE;
+                }
+                string = '\0';
+            } else {
+                if (!work->string_start) {
+                    work->string_start = work->expression - 1;
+                }
+                work->string_end = work->expression;
+            }
+            continue;
+        }
+
+        switch (c) {
+            case '"':
+            case '\'':
+                if (node->unary || node->pre) {
+                    sfe_error_code = SFE_BAD_OPERATOR;
+                    return SFE_NULL;
+                } else if (node->type != SFE_TYPE_UNKNOWN && node->type != SFE_STRING) {
+                    sfe_error_code = SFE_NO_OPERATOR;
+                    return SFE_FALSE;
+                }
+                string = c;
+                break;
+
             case ' ':
             case '\t':
             case '\r':
@@ -2365,20 +2732,19 @@ static sfe_bool sfe_do_parse(sfe_work* work, sfe_node* node)
                         sfe_error_code = SFE_NO_OPERATOR;
                         return SFE_FALSE;
                     }
-
                     work->symbol_start = work->expression - 1;
                 }
-
                 work->symbol_end = work->expression;
                 break;
         }
     }
 
-    if (!sfe_parse_symbol(work, node)) {
+    if (string) {
+        sfe_error_code = SFE_NO_RIGHT_QUOTE;
         return SFE_FALSE;
-    }
-
-    if (node->graph->parent) {
+    } else if (!sfe_parse_symbol(work, node)) {
+        return SFE_FALSE;
+    } else if (node->graph->parent) {
         switch (node->graph->parent->type) {
             case SFE_SUBEXPRESSION:
             case SFE_FUNCTION:
@@ -2394,7 +2760,6 @@ static sfe_bool sfe_do_parse(sfe_work* work, sfe_node* node)
                 return SFE_FALSE;
         }
     }
-
     return sfe_check_last(node);
 }
 
@@ -2405,6 +2770,8 @@ sfe_graph* sfe_parse(const char* expression)
 
     memset(&work, 0, sizeof(work));
     work.expression = expression;
+    work.string_start = SFE_NULL;
+    work.string_end = SFE_NULL;
     work.symbol_start = SFE_NULL;
     work.symbol_end = SFE_NULL;
 
@@ -2427,34 +2794,6 @@ sfe_graph* sfe_parse(const char* expression)
     }
 
     return graph;
-}
-
-static char* sfe_append(char* base, const char* append)
-{
-    char* string;
-    size_t length_1;
-    size_t length_2;
-
-    length_2 = strlen(append) + 1;
-    if (!base) {
-        length_1 = 0;
-        string = (char*)malloc(length_2 * sizeof(char));
-    } else {
-        length_1 = strlen(base);
-        string = (char*)realloc(base, (length_1 + length_2) * sizeof(char));
-    }
-    if (!string) {
-        if (!base) {
-            free(base);
-        }
-        sfe_error_code = SFE_ALLOCATION_FAILED;
-        return SFE_NULL;
-    }
-
-    memcpy(string + length_1, append, length_2 * sizeof(char));
-
-    sfe_error_code = SFE_OK;
-    return string;
 }
 
 static char* sfe_do_to_string(sfe_graph* graph, char* string)
@@ -2544,28 +2883,56 @@ static char* sfe_do_to_string(sfe_graph* graph, char* string)
             }
         }
 
-        if (node->type == SFE_NUMBER) {
-            number = sfe_from_number(node->number);
-            if (!number) {
-                return SFE_NULL;
-            }
-            string = sfe_append(string, number);
-            free(number);
-            if (!string) {
-                return SFE_NULL;
-            }
-        } else {
-            string = sfe_append(string, node->symbol);
-            if (!string) {
-                return SFE_NULL;
-            }
+        switch (node->type) {
+            case SFE_NUMBER:
+                number = sfe_from_number(node->number);
+                if (!number) {
+                    return SFE_NULL;
+                }
+                string = sfe_append(string, number);
+                free(number);
+                if (!string) {
+                    return SFE_NULL;
+                }
+                break;
 
-            if (node->type == SFE_SUBEXPRESSION || node->type == SFE_FUNCTION) {
+            case SFE_STRING:
+                string = sfe_append(string, "\"");
+                if (!string) {
+                    return SFE_NULL;
+                }
+                if (node->string) {
+                    string = sfe_append(string, node->string);
+                    if (!string) {
+                        return SFE_NULL;
+                    }
+                }
+                string = sfe_append(string, "\"");
+                if (!string) {
+                    return SFE_NULL;
+                }
+                break;
+
+            case SFE_SYMBOL:
+                string = sfe_append(string, node->string);
+                if (!string) {
+                    return SFE_NULL;
+                }
+                break;
+
+            case SFE_SUBEXPRESSION:
+            case SFE_FUNCTION:
+                string = sfe_append(string, node->string);
+                if (!string) {
+                    return SFE_NULL;
+                }
                 string = sfe_append(string, "(");
                 if (!string) {
                     return SFE_NULL;
                 }
-            }
+
+            default:
+                break;
         }
         
         for (i = 0; i < node->sub_count; i++) {
