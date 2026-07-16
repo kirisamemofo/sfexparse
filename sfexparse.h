@@ -866,7 +866,7 @@ static char* sfe_clone_string(char* string)
 
     if (string) {
         length = (strlen(string) + 1) * sizeof(char);
-        clone = malloc(length);
+        clone = (char*)malloc(length);
         if (!clone) {
             sfe_error_code = SFE_ALLOCATION_FAILED;
             return SFE_NULL;
