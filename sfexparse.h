@@ -18,6 +18,12 @@
 /* Define to use floating point numbers */
 /* #define SFEXPARSE_USE_FLOAT */
 
+/* Define to enable strings */
+/* #define SFEXPARSE_ENABLE_STRINGS */
+
+/* Define to enable number and string combinations */
+/* #define SFEXPARSE_ENABLE_NUMBER_STRING_COMBINE */
+
 /*
  * HOW TO USE:
  * 
@@ -205,8 +211,8 @@
  * 
  * Strings:
  * 
- *     If there's a string of characters surrounded by a ' or ", then it will
- *     be considered a string.
+ *     If enabled and there's a string of characters surrounded by a ' or ",
+ *     then it will be considered a string.
  * 
  *     Nodes with a string are set to type SFE_STRING.
  * 
@@ -486,7 +492,9 @@ typedef enum {
 typedef enum {
     SFE_TYPE_UNKNOWN = -1,
     SFE_NUMBER,
+#ifdef SFEXPARSE_ENABLE_STRINGS
     SFE_STRING,
+#endif
     SFE_SYMBOL,
     SFE_SUBEXPRESSION,
     SFE_FUNCTION,
@@ -606,6 +614,7 @@ const char* sfe_error_string(void);
  */
 void sfe_set_number(sfe_value* const node, sfe_num number);
 
+#ifdef SFEXPARSE_ENABLE_STRINGS
 /*
  * Set value string
  *
@@ -616,6 +625,7 @@ void sfe_set_number(sfe_value* const node, sfe_num number);
  *     True if successful, false if failed
  */
 sfe_bool sfe_set_string(sfe_value* const node, char* string);
+#endif
 
 /*
  * Parse expression
@@ -879,6 +889,7 @@ void sfe_set_number(sfe_value* const value, sfe_num number)
     }
 }
 
+#ifdef SFEXPARSE_ENABLE_STRINGS
 sfe_bool sfe_set_string(sfe_value* const value, char* string)
 {
     value->type = SFE_STRING;
@@ -894,6 +905,7 @@ sfe_bool sfe_set_string(sfe_value* const value, char* string)
 
     return SFE_TRUE;
 }
+#endif
 
 static void sfe_add_node(sfe_graph* graph, sfe_node* node)
 {
@@ -1298,11 +1310,13 @@ static sfe_bool sfe_get_value(sfe_node* node, sfe_value* value)
             sfe_error_code = SFE_OK;
             break;
 
+#ifdef SFEXPARSE_ENABLE_STRINGS
         case SFE_STRING:
             value->type = SFE_STRING;
             value->string = node->string;
             sfe_error_code = SFE_OK;
             break;
+#endif
 
         default:
             if (sfe_do_get_value) {
@@ -1321,7 +1335,11 @@ static sfe_bool sfe_assign(sfe_node* node, sfe_value* value)
 {
     sfe_error_code = SFE_CANT_SET_VALUE;
 
+#ifndef SFEXPARSE_ENABLE_STRINGS
+    if (node->type != SFE_NUMBER) {
+#else
     if (node->type != SFE_NUMBER && node->type != SFE_STRING) {
+#endif
         if (sfe_do_set_value) {
             sfe_error_code = sfe_do_set_value(node, value);
         }
@@ -1424,20 +1442,48 @@ static sfe_bool sfe_do_increment(sfe_graph* graph, sfe_bool post)
     return SFE_TRUE;
 }
 
-static sfe_bool sfe_check_binary(sfe_node* left, sfe_node* right)
+static sfe_bool sfe_check_binary(sfe_node* left, sfe_node* right, sfe_type type)
 {
-    if (left->type == SFE_STRING || right->type == SFE_STRING) {
+    sfe_type left_type;
+
+    if (type == SFE_TYPE_UNKNOWN) {
+        left_type = left->type;
+    } else {
+        left_type = type;
+    }
+
+#ifdef SFEXPARSE_ENABLE_STRINGS
+    if (left_type == SFE_STRING || right->type == SFE_STRING) {
         switch (left->binary) {
             case SFE_ADD:
+#ifndef SFEXPARSE_ENABLE_NUMBER_STRING_COMBINE
+                if (left_type == SFE_NUMBER || right->type == SFE_NUMBER) {
+#else
+                if (left->assign && left_type == SFE_NUMBER) {
+#endif
+                    sfe_error_code = SFE_BAD_OPERATOR;
+                    return SFE_FALSE;
+                }
                 break;
 
             case SFE_EQUAL:
+#ifndef SFEXPARSE_ENABLE_NUMBER_STRING_COMBINE
+                if (left_type == SFE_NUMBER || right->type == SFE_NUMBER) {
+#else
+                if ((!left->assign && (left_type == SFE_NUMBER || right->type == SFE_NUMBER)) ||
+                    (left->assign && left_type == SFE_NUMBER)) {
+#endif
+                    sfe_error_code = SFE_BAD_OPERATOR;
+                    return SFE_FALSE;
+                }
+                break;
+
             case SFE_NOT_EQUAL:
             case SFE_LESS:
             case SFE_LESS_EQUAL:
             case SFE_GREATER:
             case SFE_GREATER_EQUAL:
-                if (!left->assign && left->type != right->type) {
+                if (left_type == SFE_NUMBER || right->type == SFE_NUMBER) {
                     sfe_error_code = SFE_BAD_OPERATOR;
                     return SFE_FALSE;
                 }
@@ -1447,7 +1493,10 @@ static sfe_bool sfe_check_binary(sfe_node* left, sfe_node* right)
                 sfe_error_code = SFE_BAD_OPERATOR;
                 return SFE_FALSE;
         }
-    } else if (right->type == SFE_NUMBER) {
+    }
+#endif
+
+    if (right->type == SFE_NUMBER) {
          switch (left->binary) {
             case SFE_DIVIDE:
                 if (right->number == 0) {
@@ -1717,12 +1766,22 @@ static sfe_bool sfe_add_group(sfe_node* node, sfe_group* groups, sfe_group_id id
 static sfe_bool sfe_do_group_node(sfe_node* node, sfe_value* value)
 {
     char* string;
+#ifdef SFEXPARSE_ENABLE_STRINGS
+#ifdef SFEXPARSE_ENABLE_NUMBER_STRING_COMBINE
     char* append;
+#endif
+#endif
 
     if (value->type == SFE_NUMBER) {
         if (node->next->type == SFE_NUMBER) {
             node->next->number = sfe_do_binary(value->number, node->next->number, node->binary);
-        } else if (node->next->type == SFE_STRING) {
+        }
+#ifdef SFEXPARSE_ENABLE_STRINGS
+        if (node->next->type == SFE_STRING) {
+#ifndef SFEXPARSE_ENABLE_NUMBER_STRING_COMBINE
+            sfe_error_code = SFE_BAD_OPERATOR;
+            return SFE_FALSE;
+#else
             string = sfe_from_number(value->number);
             if (!string) {
                 return SFE_FALSE;
@@ -1736,9 +1795,18 @@ static sfe_bool sfe_do_group_node(sfe_node* node, sfe_value* value)
                 free(node->next->string);
             }
             node->next->string = string;
+#endif
         }
-    } else if (value->type == SFE_STRING) {
+#endif
+    }
+
+#ifdef SFEXPARSE_ENABLE_STRINGS
+    if (value->type == SFE_STRING) {
         if (node->next->type == SFE_NUMBER) {
+#ifndef SFEXPARSE_ENABLE_NUMBER_STRING_COMBINE
+            sfe_error_code = SFE_BAD_OPERATOR;
+            return SFE_FALSE;
+#else
             string = sfe_clone_string(value->string);
             if (sfe_error_code != SFE_OK) {
                 return SFE_FALSE;
@@ -1756,6 +1824,7 @@ static sfe_bool sfe_do_group_node(sfe_node* node, sfe_value* value)
             if (!node->next->string) {
                 return SFE_FALSE;
             }
+#endif
         } else if (node->next->type == SFE_STRING) {
             if (node->binary == SFE_ADD) {
                 string = sfe_clone_string(value->string);
@@ -1781,6 +1850,7 @@ static sfe_bool sfe_do_group_node(sfe_node* node, sfe_value* value)
             }
         }
     }
+#endif
 
     sfe_error_code = SFE_OK;
     return SFE_TRUE;
@@ -1816,26 +1886,22 @@ static sfe_bool sfe_do_groups(sfe_group* groups, sfe_bool assign)
 
             if (!sfe_get_value(node, &value)) {
                 return SFE_FALSE;
+            } else if (!sfe_check_binary(node, node->next, value.type)) {
+                return SFE_FALSE;
             }
             
             if (node->binary != SFE_EQUAL) {
-                if (value.type == SFE_NUMBER && node->next->type != SFE_NUMBER) {
-                    sfe_error_code = SFE_BAD_OPERATOR;
-                    return SFE_FALSE;
-                } else if (!sfe_do_group_node(node, &value)) {
+                if (!sfe_do_group_node(node, &value)) {
                     return SFE_FALSE;
                 }
                 value.number = node->next->number;
                 value.string = node->next->string;
             } else {
                 if (value.type == SFE_NUMBER) {
-                    if (node->next->type == SFE_NUMBER) {
-                        value.number = node->next->number;
-                    } else {
-                        sfe_error_code = SFE_BAD_OPERATOR;
-                        return SFE_FALSE;
-                    }
-                } else {
+                    value.number = node->next->number;
+                }
+#ifdef SFEXPARSE_ENABLE_STRINGS
+                if (value.type == SFE_STRING) {
                     if (node->next->type == SFE_NUMBER) {
                         node->next->type = SFE_STRING;
                         node->next->string = sfe_from_number(node->next->number);
@@ -1846,6 +1912,7 @@ static sfe_bool sfe_do_groups(sfe_group* groups, sfe_bool assign)
                     }
                     value.string = node->next->string;
                 }
+#endif
             }
 
             if (!sfe_assign(node, &value)) {
@@ -1882,10 +1949,15 @@ static sfe_bool sfe_do_optimize(sfe_graph* graph, sfe_group* groups)
 
         sfe_do_unary(node);
         if (node->previous) {
-            if (!sfe_check_binary(node->previous, node)) {
+            if (!sfe_check_binary(node->previous, node, SFE_TYPE_UNKNOWN)) {
                 return SFE_FALSE;
-            } else if ((node->type == SFE_NUMBER || node->type == SFE_STRING) &&
+            }
+#ifndef SFEXPARSE_ENABLE_STRINGS
+            if (node->type == SFE_NUMBER && node->previous->type == SFE_NUMBER) {
+#else
+            if ((node->type == SFE_NUMBER || node->type == SFE_STRING) &&
                 (node->previous->type == SFE_NUMBER || node->previous->type == SFE_STRING)) {
+#endif
                 if (!sfe_add_group(node->previous, groups, sfe_group_ids[node->previous->binary])) {
                     return SFE_FALSE;
                 }
@@ -1941,7 +2013,11 @@ static sfe_bool sfe_do_resolve_step(sfe_graph* graph, sfe_bool assign, sfe_group
             }
         }
 
+#ifndef SFEXPARSE_ENABLE_STRINGS
+        if (node->type != SFE_NUMBER && !node->assign) {
+#else
         if (node->type != SFE_NUMBER && node->type != SFE_STRING && !node->assign) {
+#endif
             if (!sfe_get_value(node, &value)) {
                 return SFE_FALSE;
             }
@@ -1957,11 +2033,13 @@ static sfe_bool sfe_do_resolve_step(sfe_graph* graph, sfe_bool assign, sfe_group
 
         sfe_do_unary(node);
         if (node->previous) {
-            if (!sfe_check_binary(node->previous, node)) {
-                return SFE_FALSE;
-            } else if (!assign && !node->previous->assign) {
-                if (!sfe_add_group(node->previous, groups, sfe_group_ids[node->previous->binary])) {
-                    return SFE_FALSE;
+            if (!assign) {
+                if (!sfe_check_binary(node->previous, node, SFE_TYPE_UNKNOWN)) {
+                   return SFE_FALSE;
+                } else if (!node->previous->assign) {
+                    if (!sfe_add_group(node->previous, groups, sfe_group_ids[node->previous->binary])) {
+                        return SFE_FALSE;
+                    }
                 }
             } else if (assign && node->previous->assign) {
                 if (!sfe_add_group(node->previous, groups, SFE_GROUP_ASSIGN)) {
@@ -2021,7 +2099,11 @@ sfe_bool sfe_resolve(sfe_graph* graph, sfe_value* result)
         return SFE_FALSE;
     }
 
+#ifndef SFEXPARSE_ENABLE_STRINGS
+    if (resolve->head->type == SFE_NUMBER) {
+#else
     if (resolve->head->type == SFE_NUMBER || resolve->head->type == SFE_STRING) {
+#endif
         result->type = resolve->head->type;
         result->number = resolve->head->number;
         if (resolve->head->string) {
@@ -2185,6 +2267,7 @@ static sfe_bool sfe_check_last(sfe_node* node)
     return SFE_TRUE;
 }
 
+#ifdef SFEXPARSE_ENABLE_STRINGS
 static sfe_bool sfe_parse_string(sfe_work* work, sfe_node* node)
 {
     size_t length;
@@ -2214,6 +2297,7 @@ static sfe_bool sfe_parse_string(sfe_work* work, sfe_node* node)
     node->type = SFE_STRING;
     return SFE_TRUE;
 }
+#endif
 
 static sfe_bool sfe_parse_symbol(sfe_work* work, sfe_node* node)
 {
@@ -2272,13 +2356,16 @@ static sfe_bool sfe_parse_symbol(sfe_work* work, sfe_node* node)
 
 static sfe_bool sfe_do_parse(sfe_work* work, sfe_node* node)
 {
+#ifdef SFEXPARSE_ENABLE_STRINGS
     char string = '\0';
+#endif
     char c;
     sfe_graph* sub;
 
     while ((c = *work->expression)) {
         work->expression++;
 
+#ifdef SFEXPARSE_ENABLE_STRINGS
         if (string) {
             if (c == string) {
                 if (!sfe_parse_string(work, node)) {
@@ -2293,8 +2380,10 @@ static sfe_bool sfe_do_parse(sfe_work* work, sfe_node* node)
             }
             continue;
         }
+#endif
 
         switch (c) {
+#ifdef SFEXPARSE_ENABLE_STRINGS
             case '"':
             case '\'':
                 if (node->unary || node->pre) {
@@ -2306,6 +2395,7 @@ static sfe_bool sfe_do_parse(sfe_work* work, sfe_node* node)
                 }
                 string = c;
                 break;
+#endif
 
             case ' ':
             case '\t':
@@ -2751,12 +2841,18 @@ static sfe_bool sfe_do_parse(sfe_work* work, sfe_node* node)
         }
     }
 
+#ifdef SFEXPARSE_ENABLE_STRINGS
     if (string) {
         sfe_error_code = SFE_NO_RIGHT_QUOTE;
         return SFE_FALSE;
-    } else if (!sfe_parse_symbol(work, node)) {
+    }
+#endif
+    
+    if (!sfe_parse_symbol(work, node)) {
         return SFE_FALSE;
-    } else if (node->graph->parent) {
+    }
+    
+    if (node->graph->parent) {
         switch (node->graph->parent->type) {
             case SFE_SUBEXPRESSION:
             case SFE_FUNCTION:
@@ -2772,6 +2868,7 @@ static sfe_bool sfe_do_parse(sfe_work* work, sfe_node* node)
                 return SFE_FALSE;
         }
     }
+
     return sfe_check_last(node);
 }
 
@@ -2908,6 +3005,7 @@ static char* sfe_do_to_string(sfe_graph* graph, char* string)
                 }
                 break;
 
+#ifdef SFEXPARSE_ENABLE_STRINGS
             case SFE_STRING:
                 string = sfe_append(string, "\"");
                 if (!string) {
@@ -2924,6 +3022,7 @@ static char* sfe_do_to_string(sfe_graph* graph, char* string)
                     return SFE_NULL;
                 }
                 break;
+#endif
 
             case SFE_SYMBOL:
                 string = sfe_append(string, node->string);
