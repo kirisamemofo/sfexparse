@@ -1429,12 +1429,18 @@ static sfe_bool sfe_check_binary(sfe_node* left, sfe_node* right)
     if (left->type == SFE_STRING || right->type == SFE_STRING) {
         switch (left->binary) {
             case SFE_ADD:
+                break;
+
             case SFE_EQUAL:
             case SFE_NOT_EQUAL:
             case SFE_LESS:
             case SFE_LESS_EQUAL:
             case SFE_GREATER:
             case SFE_GREATER_EQUAL:
+                if (!left->assign && left->type != right->type) {
+                    sfe_error_code = SFE_BAD_OPERATOR;
+                    return SFE_FALSE;
+                }
                 break;
 
             default:
