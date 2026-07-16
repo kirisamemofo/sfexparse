@@ -37,7 +37,7 @@
  * 
  * In order to utilize variables and functions during resolution, value getter and
  * setter functions need to be defined, alongside a symbol validator function, and
- * then passed into sfe_init(), like so:
+ * then passed into sfe_init():
  * 
  *     sfe_init(getter, setter, validator);
  * 
@@ -49,12 +49,13 @@
  * 
  * When either the getter or setter are called, it will be given a pointer to a graph
  * node which includes things such as the symbol name, list of arguments for function,
- * calls, and list of subscript values for arraysL
+ * calls, and list of subscript values for arrays:
  * 
- *     node->type          - Type
+ *     node->type          - Type          (SFE_NUMBER, SFE_STRING, SFE_SYMBOL,
+ *                                          SFE_FUNCTION, or SFE_ARRAY)
  *     node->number        - Number        (if type is SFE_NUMBER)
  *     node->string        - String/Symbol (if type is SFE_STRING, SFE_SYMBOL,
-                                            SFE_FUNCTION, or SFE_ARRAY)
+ *                                          SFE_FUNCTION, or SFE_ARRAY)
  *     node->subs          - Function arguments/array subscripts
  *     node->sub_count     - Function argument/array subscript count
  *     node->subs->head[i] - Function argument/array subscript node
@@ -101,11 +102,9 @@
  * 
  * The setter function will be given the value info in which to set with:
  * 
- *     if (value->type == SFE_NUMBER) {
- *         number = value->number;
- *     } else if (value->type == SFE_STRING) {
- *         string = value->string;
- *     }
+ *     value->type   - Type   (SFE_NUMBER or SFE_STRING)
+ *     value->number - Number (if type is SFE_NUMBER)
+ *     value->string - String (if type is SFE_STRING)
  * 
  * If successful, SFE_OK should be returned. If not, SFE_CANT_SET_VALUE should be
  * returned instead:
@@ -1427,7 +1426,7 @@ static sfe_bool sfe_do_increment(sfe_graph* graph, sfe_bool post)
 
 static sfe_bool sfe_check_binary(sfe_node* left, sfe_node* right)
 {
-    if (left->type == SFE_STRING && right->type == SFE_STRING) {
+    if (left->type == SFE_STRING || right->type == SFE_STRING) {
         switch (left->binary) {
             case SFE_ADD:
             case SFE_EQUAL:
@@ -1441,21 +1440,6 @@ static sfe_bool sfe_check_binary(sfe_node* left, sfe_node* right)
             default:
                 sfe_error_code = SFE_BAD_OPERATOR;
                 return SFE_FALSE;
-        }
-    } else if (left->type == SFE_STRING) {
-        if (left->binary != SFE_ADD) {
-            sfe_error_code = SFE_BAD_OPERATOR;
-            return SFE_FALSE;
-        }
-    } else if (right->type == SFE_STRING) {
-        if (!left->assign) {
-            if (left->binary != SFE_ADD) {
-                sfe_error_code = SFE_BAD_OPERATOR;
-                return SFE_FALSE;
-            }
-        } else if (left->binary != SFE_EQUAL && left->binary != SFE_ADD) {
-            sfe_error_code = SFE_BAD_OPERATOR;
-            return SFE_FALSE;
         }
     } else if (right->type == SFE_NUMBER) {
          switch (left->binary) {
@@ -1581,7 +1565,7 @@ static sfe_num sfe_do_binary(sfe_num left, sfe_num right, sfe_binary binary)
     return result;
 }
 
-static sfe_num sfe_compare_strings(char* left, char* right, sfe_binary binary)
+static sfe_num sfe_do_compare(char* left, char* right, sfe_binary binary)
 {
     sfe_num result;
 
@@ -1783,7 +1767,7 @@ static sfe_bool sfe_do_group_node(sfe_node* node, sfe_value* value)
                 node->next->string = string;
             } else {
                 node->next->type = SFE_NUMBER;
-                node->next->number = sfe_compare_strings(node->string, node->next->string, node->binary);
+                node->next->number = sfe_do_compare(value->string, node->next->string, node->binary);
                 if (node->next->string) {
                     free(node->next->string);
                     node->next->string = SFE_NULL;
@@ -1824,17 +1808,39 @@ static sfe_bool sfe_do_groups(sfe_group* groups, sfe_bool assign)
         for (i = 0; i < groups[0].count; i++) {
             node = groups[0].array[i];
 
+            if (!sfe_get_value(node, &value)) {
+                return SFE_FALSE;
+            }
+            
             if (node->binary != SFE_EQUAL) {
-                if (!sfe_get_value(node, &value)) {
+                if (value.type == SFE_NUMBER && node->next->type != SFE_NUMBER) {
+                    sfe_error_code = SFE_BAD_OPERATOR;
                     return SFE_FALSE;
                 } else if (!sfe_do_group_node(node, &value)) {
                     return SFE_FALSE;
                 }
+                value.number = node->next->number;
+                value.string = node->next->string;
+            } else {
+                if (value.type == SFE_NUMBER) {
+                    if (node->next->type == SFE_NUMBER) {
+                        value.number = node->next->number;
+                    } else {
+                        sfe_error_code = SFE_BAD_OPERATOR;
+                        return SFE_FALSE;
+                    }
+                } else {
+                    if (node->next->type == SFE_NUMBER) {
+                        node->next->type = SFE_STRING;
+                        node->next->string = sfe_from_number(node->next->number);
+                        if (!node->next->string) {
+                            return SFE_FALSE;
+                        }
+                        node->next->number = 0;
+                    }
+                    value.string = node->next->string;
+                }
             }
-
-            value.type = node->next->type;
-            value.number = node->next->number;
-            value.string = node->next->string;
 
             if (!sfe_assign(node, &value)) {
                 return SFE_FALSE;
